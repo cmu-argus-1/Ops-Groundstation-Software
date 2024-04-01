@@ -9,8 +9,6 @@ import RPi.GPIO as GPIO
 
 AWS_S3_BUCKET_NAME = 'spacecraft-files'
 AWS_REGION = 'us-east-2'
-AWS_ACCESS_KEY = 'AKIA2UC3FSEOFPGS3MQG'
-AWS_SECRET_KEY = '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'
 
 # Globals
 received_success = False
