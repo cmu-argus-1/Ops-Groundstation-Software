@@ -40,7 +40,7 @@ class GROUNDSTATION:
         # CRC Error Count
         self.crc_error_count = 0
         # List of commands to send before image request
-        self.cmd_queue = [SAT_BATT_INFO, SAT_GPS_INFO, SAT_IMU_INFO]
+        self.cmd_queue = [SAT_HEARTBEAT_BATT]
         self.cmd_queue_size = len(self.cmd_queue)
         # Commands issued by the groundstation
         self.gs_cmd = 0x0
@@ -57,10 +57,24 @@ class GROUNDSTATION:
         self.rx_message_sequence_count = 0
         self.rx_message_size = 0
         self.rx_req_ack = 0
+        # OTA Sequence Counter 
+        self.ota_sequence_counter = 0
+        # Satellite request acknowledgement
+        self.gs_req_ack = REQ_ACK_NUM
+        # OTA received success
+        self.ota_sat_rec_success = 1
+        # OTA satellite sequence counter
+        self.ota_sat_sequence_counter = 0
+        self.send_mod = 10
 
         # Setup groundstation GPIO
         self.rx_ctrl = 22
         self.tx_ctrl = 23
+
+        # Setup timestamp for timing packet arrival
+        self.start_time = time.time()
+        self.packet_time = 0
+        self.time_diff = 0
 
         # Set up the GPIO pin as an output pin
         GPIO.setmode(GPIO.BCM)
@@ -79,6 +93,11 @@ class GROUNDSTATION:
         self.log_name = f"GS_Logs_{formatted_time}.txt"
 
         self.log = open(self.log_name,'wb')
+
+        # Check command queue
+        print("GS Command Queue: ", self.cmd_queue)
+        print(f'{time.time() - self.start_time}: Listening for UHF LoRa packets')
+        print()
 
     '''
         Name: received_message
@@ -105,6 +124,22 @@ class GROUNDSTATION:
             # print('')
             self.unpack_message(lora)
             receive_multiple = self.rx_req_ack
+
+        if ((self.new_session == True) or (self.crc_error_count > 0)): 
+            # If last command was an image, refetch last portion of image 
+            # to make sure it was received correctly
+            if (self.gs_cmd == SAT_IMG_CMD):
+                high_sequence_count = self.sequence_counter
+                while ((self.sequence_counter > 0) and (self.sequence_counter > (high_sequence_count - self.send_mod))):
+                    self.sequence_counter -= 1
+                    self.image_array.pop(self.sequence_counter)
+            # If last command was an OTA, resend the last portion of the file 
+            # to make sure it was received correctly.
+            elif (self.gs_cmd == GS_OTA_REQ):
+                if (self.ota_sequence_counter >= self.send_mod):
+                    self.ota_sequence_counter -= self.send_mod
+                else:
+                    self.ota_sequence_counter = 0
 
         # Turn GS RX pin LOW!
         GPIO.output(self.rx_ctrl, GPIO.LOW)
@@ -139,20 +174,29 @@ class GROUNDSTATION:
 
         if ((self.rx_message_ID == SAT_HEARTBEAT_BATT) or (self.rx_message_ID == SAT_HEARTBEAT_SUN) or \
             (self.rx_message_ID == SAT_HEARTBEAT_IMU) or (self.rx_message_ID == SAT_HEARTBEAT_GPS)):
-            print("Heartbeat received!")
-            self.num_commands_sent = 0
+            # print("Heartbeat received!")
+            if (not self.new_session):
+                self.num_commands_sent = 0
             self.new_session = True
-            # If last command was an image, refetch last portion of image 
-            # to make sure it was received correctly.
-            if (self.gs_cmd == SAT_IMG1_CMD):
-                if (self.sequence_counter > 0):
-                    self.sequence_counter -= 1
-                    self.image_array.pop(self.sequence_counter)
-        elif self.rx_message_ID == SAT_IMAGES:
+        elif self.rx_message_ID == SAT_IMG_INFO:
             self.image_info_unpack(lora)
-        elif (self.rx_message_ID == SAT_IMG1_CMD):
-            print(f'Image #{self.rx_message_sequence_count} received!')
+        elif (self.rx_message_ID == SAT_IMG_CMD):
+            # Get current timestamp
+            time_this_packet = time.time() - self.time_diff
+            self.time_diff = time.time()
+            
+            self.packet_time += time_this_packet
+            
+            # Add timestamp to output
+            print(f'{time.time() - self.start_time}: Image Packet #{self.rx_message_sequence_count} received!')
+            # Unpack image command
             self.image_unpack(lora)
+        elif (self.rx_message_ID == SAT_OTA_RES):
+            self.ota_sat_rec_success = lora._last_payload.message[4:5]
+            self.ota_sat_sequence_counter = lora._last_payload.message[5:7]
+            print(f'OTA Response: {self.ota_sat_rec_success}')
+        elif (self.rx_message_ID == SAT_DEL_IMG):
+            print(f'{time.time() - self.start_time}: Image fully downlinked, SAT deleted image')
         else:
             print("Telemetry received!")
             print("Lora header_to:",lora._last_payload.header_to)
@@ -232,30 +276,77 @@ class GROUNDSTATION:
     def transmit_message(self,lora):
         # Pull GS TX pin HIGH!
         GPIO.output(self.tx_ctrl, GPIO.HIGH)
-        time.sleep(0.15)
+        send_multiple = True
+        while (send_multiple):
+            time.sleep(0.15)
 
-        if self.num_commands_sent < self.cmd_queue_size:
-            lora_tx_message = self.pack_telemetry_command()
-        else:
-            lora_tx_message = self.pack_image_command()
+            if self.num_commands_sent < self.cmd_queue_size:
+                self.gs_cmd = self.cmd_queue[self.num_commands_sent]
 
-        # Send a message to the satellite device with address 2
-        # Retry sending the message twice if we don't get an acknowledgment from the recipient
-    
-        status = lora.send(lora_tx_message, 255)
+                # OTA Update Sequence
+                if (self.gs_cmd == GS_OTA_REQ):
+                    if (self.ota_sat_rec_success == 0):
+                        self.ota_sequence_counter = self.ota_sat_sequence_counter
 
-        # Check for groundstation acknowledgement 
-        if status is True:
-            print("Ground station sent message: [", *[hex(num) for num in lora_tx_message], "]")
-            print("\n")
-        else:
-            print("No acknowledgment from recipient")
-            print("\n")
+                    # If at the beginning of the OTA update sequence, 
+                    # fetch the file and store it in a buffer.
+                    if (self.ota_sequence_counter <= 0):
+                        self.OTA_get_info()
+                    target_sequence_count = self.ota_files.file_message_count
 
-        while not lora.wait_packet_sent():
-            pass
+                    # If 10 messages have not be sent and less than the target,
+                    # request no ack and stay in loop.
+                    if ((((self.ota_sequence_counter % self.send_mod) > 0) and (self.ota_sequence_counter < (target_sequence_count - 1))) or \
+                        (self.ota_sequence_counter == 0)):
+                        send_multiple = True
+                        self.gs_req_ack = 0x0
+                    # Otherwise, exit loop and request ack
+                    else:
+                        send_multiple = False
+                        self.gs_req_ack = REQ_ACK_NUM
 
-        self.last_gs_cmd = self.gs_cmd
+                    packets_remaining = (target_sequence_count - 1) - self.ota_sequence_counter
+                    packet_size = len(self.file_array[self.ota_sequence_counter]) + 2
+                    packet_size = packet_size.to_bytes(1,'big')
+                    # Transmit image in multiple packets
+                    # Header
+                    tx_header = ((self.gs_req_ack | GS_OTA_REQ).to_bytes(1,'big') + (self.ota_sequence_counter).to_bytes(2,'big') + packet_size)
+                    # Payload
+                    tx_payload = packets_remaining.to_bytes(2,'big') + self.file_array[self.ota_sequence_counter]
+                    # Pack entire message
+                    lora_tx_message = tx_header + tx_payload
+
+                    self.ota_sequence_counter += 1
+                    # If at the end of the file,
+                    # Exit OTA sequence and reset sequence counter
+                    if (self.ota_sequence_counter >= target_sequence_count):
+                        self.num_commands_sent += 1
+                        self.ota_sequence_counter = 0
+            
+                else:
+                    lora_tx_message = self.pack_telemetry_command()
+                    send_multiple = False
+            else:
+                lora_tx_message = self.pack_image_command()
+                send_multiple = False
+
+            # Send a message to the satellite device with address 2
+            # Retry sending the message twice if we don't get an acknowledgment from the recipient
+        
+            status = lora.send(lora_tx_message, 255)
+
+            # Check for groundstation acknowledgement 
+            if status is True:
+                print(time.time() - self.start_time, ": Ground station sent message: [", *[hex(num) for num in lora_tx_message], "]")
+                print()
+            else:
+                print("No acknowledgment from recipient")
+                print()
+
+            while not lora.wait_packet_sent():
+                pass
+
+        self.crc_error_count = 0
 
         # Set GS TX pin LOW!
         GPIO.output(self.tx_ctrl, GPIO.LOW)
@@ -266,14 +357,12 @@ class GROUNDSTATION:
     '''
     def pack_telemetry_command(self):
         print("Sending command: ",self.cmd_queue[self.num_commands_sent])
-        self.gs_cmd = self.cmd_queue[self.num_commands_sent]
-        self.num_commands_sent += 1
-
         # Payload to transmit
         # Simulated for now!
         lora_tx_header = bytes([REQ_ACK_NUM | GS_ACK, 0x00, 0x01, 0x4])
         lora_tx_payload = (self.rx_message_ID.to_bytes(1,'big') + self.gs_cmd.to_bytes(1,'big') + (0x0).to_bytes(2,'big'))
         lora_tx_message = lora_tx_header + lora_tx_payload
+        self.num_commands_sent += 1
 
         return lora_tx_message
 
@@ -285,15 +374,17 @@ class GROUNDSTATION:
         # Payload to transmit
         # Simulated for now!
 
-        if ((self.gs_cmd == SAT_DEL_IMG1) or (self.new_session == True)):
-            self.gs_cmd = SAT_IMAGES
+        if ((self.gs_cmd == SAT_DEL_IMG) or (self.new_session == True)):
+            self.time_diff = time.time()
+            
+            self.gs_cmd = SAT_IMG_INFO
             lora_tx_header = bytes([REQ_ACK_NUM | GS_ACK, 0x00, 0x01, 0x4])
             lora_tx_payload = (self.rx_message_ID.to_bytes(1,'big') + self.gs_cmd.to_bytes(1,'big') + (0x0).to_bytes(2,'big'))
             lora_tx_message = lora_tx_header + lora_tx_payload
             # Session is no longer "new" after telemetry has been retrieved
             self.new_session = False
         elif ((self.sequence_counter >= self.target_sequence_count) and (self.target_sequence_count != 0)):
-            self.gs_cmd = SAT_DEL_IMG1
+            self.gs_cmd = SAT_DEL_IMG
             lora_tx_header = bytes([REQ_ACK_NUM | GS_ACK, 0x00, 0x01, 0x4])
             lora_tx_payload = (self.rx_message_ID.to_bytes(1,'big') + self.gs_cmd.to_bytes(1,'big') + (0x0).to_bytes(2,'big'))
             lora_tx_message = lora_tx_header + lora_tx_payload
@@ -302,13 +393,72 @@ class GROUNDSTATION:
         else:
             self.target_image_UID = self.sat_images.image_UID
             self.target_sequence_count = self.sat_images.image_message_count       
-            self.gs_cmd = SAT_IMG1_CMD
+            self.gs_cmd = SAT_IMG_CMD
+
+            # Output average packet time between last two acknowledgements
+            sat_send_mod = 10 
+            print(f'Avg. transmission time: {self.packet_time / sat_send_mod}')
+            self.packet_time = 0
 
             lora_tx_header = bytes([REQ_ACK_NUM | GS_ACK, 0x00, 0x00, 0x4])
             lora_tx_payload = (self.rx_message_ID.to_bytes(1,'big') + self.gs_cmd.to_bytes(1,'big') + self.sequence_counter.to_bytes(2,'big'))
             lora_tx_message = lora_tx_header + lora_tx_payload
 
         return lora_tx_message
+
+    '''
+        Name: OTA_get_info
+        Description: Read OTA file from memory and store in a buffer.
+    '''
+    def OTA_get_info(self):
+        # Setup file class
+        self.ota_files = OTA()
+
+        # Setup initial file UIDs
+        self.ota_files.file_UID = 0x1
+
+        ## ---------- File Size and Message Counts ---------- ## 
+        # Get file size and message count
+        file_stat = os.stat('tinyimage.jpg')
+        self.ota_files.file_size = int(file_stat[6])
+        self.ota_files.file_message_count = int(self.ota_files.file_size / 196)
+
+        if ((self.ota_files.file_size % 196) > 0):
+            self.ota_files.file_message_count += 1    
+
+        print("File size is",self.ota_files.file_size,"bytes")
+        print("This file requires",self.ota_files.file_message_count,"messages")
+
+        self.OTA_pack_files()
+
+    '''
+        Name: OTA_pack_info
+        Description: Pack message UID, size, and message count for file in buffer.
+    '''
+    def OTA_pack_info(self):
+        return (self.ota_files.file_UID.to_bytes(1,'big') + self.ota_files.file_size.to_bytes(4,'big') + self.ota_files.file_message_count.to_bytes(2,'big'))
+
+    '''
+        Name: OTA_pack_files
+        Description: Pack one file into an array
+    '''
+    def OTA_pack_files(self):
+        # Initialize image arrays
+        self.file_array = []
+        
+        # Image #Buffer Store
+        bytes_remaining = self.ota_files.file_size
+        send_bytes = open('tinyimage.jpg','rb')
+        # Loop through image and store contents in an array
+        while (bytes_remaining > 0):
+            if (bytes_remaining >= 196):
+                self.file_array.append(send_bytes.read(196))
+            else:
+                self.file_array.append(send_bytes.read(bytes_remaining))
+                
+            bytes_remaining -= 196
+        # Close file when complete
+        send_bytes.close()
 
     def close_log(self):
         self.log.close()

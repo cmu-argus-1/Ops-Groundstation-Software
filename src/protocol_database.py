@@ -22,19 +22,13 @@ SAT_HEARTBEAT_GPS   = 0x03
 GS_ACK  = 0x08
 SAT_ACK = 0x09
 
-SAT_BATT_INFO = 0x10
-SAT_GPS_INFO  = 0x11
-SAT_IMU_INFO  = 0x12
-SAT_SUN_INFO  = 0x13
+GS_OTA_REQ = 0x14
+SAT_OTA_RES = 0x15
 
-SAT_IMAGES   = 0x21
-SAT_DEL_IMG1 = 0x22
-SAT_DEL_IMG2 = 0x23
-SAT_DEL_IMG3 = 0x24
+SAT_IMG_INFO   = 0x21
+SAT_DEL_IMG = 0x22
 
-SAT_IMG1_CMD = 0x50
-SAT_IMG2_CMD = 0x51
-SAT_IMG3_CMD = 0x52
+SAT_IMG_CMD = 0x50
 
 REQ_ACK_NUM = 0x80
 
@@ -44,6 +38,13 @@ class IMAGES:
         self.image_UID = 0x0
         self.image_size = 0
         self.image_message_count = 0
+
+class OTA:
+    def __init__(self):
+        # Image #1 declarations
+        self.file_UID = 0x0
+        self.file_size = 0
+        self.file_message_count = 0
 
 # Function definitions 
 def gs_unpack_header(lora):
@@ -62,6 +63,10 @@ def gs_unpack_header(lora):
     message_ID = int.from_bytes((lora._last_payload.message[0:1]),byteorder='big') & 0b01111111
     message_sequence_count = int.from_bytes(lora._last_payload.message[1:3],byteorder='big')
     message_size = int.from_bytes(lora._last_payload.message[3:4],byteorder='big')
+
+    lora_rx_message = list(lora._last_payload.message)
+    lora_rx_message[0] = lora_rx_message[0] & 0b01111111
+    deconstruct_message(lora_rx_message)
 
     return ack_req, message_ID, message_sequence_count, message_size
 
@@ -83,63 +88,6 @@ def image_meta_info(lora):
 
     return stored_image
 
-def construct_message(lora_tx_message_ID):
-    """
-    :param lora_tx_message_ID: LoRa message ID
-    :return: lora_tx_message
-
-    Constructs TX message based on message ID
-    """
-    # LoRa header
-    lora_tx_message = [0x00, 0x00, 0x00, 0x00] 
-
-    if(lora_tx_message_ID == SAT_HEARTBEAT):
-        # Construct SAT heartbeat 
-        lora_tx_message = [REQ_ACK_NUM | SAT_HEARTBEAT, 0x00, 0x01, 0x0F] 
-
-        # Generate LoRa payload for SAT heartbeat 
-        # Add system status
-        system_status = get_system_status()
-        lora_tx_message += system_status
-
-        # Add satellite battery SOC
-        batt_soc = get_batt_soc()
-        lora_tx_message.append(batt_soc)
-
-        # Add satellite temperature 
-        temperature = get_temperature()
-        lora_tx_message.append(temperature)
-
-        # Add satellite latitude 
-        sat_lat = get_lat()
-        lora_tx_message += sat_lat
-
-        # Add satellite longitude  
-        sat_long = get_long()
-        lora_tx_message += sat_long
-
-        # Add no request from satellite 
-        lora_tx_message += [0x00, 0x00, 0x00]
-    
-    elif(lora_tx_message_ID == GS_ACK):
-        # Construct GS acknowledgement 
-        lora_tx_message = [REQ_ACK_NUM | GS_ACK, 0x00, 0x01, 0x04] 
-
-        # Generate LoRa payload for GS acknowledgement  
-        # Add received message ID
-        prev_message_ID = get_prev_message_ID()
-        lora_tx_message.append(prev_message_ID)
-
-        # Add received message ID
-        req_message_ID = get_req_message_ID()
-        lora_tx_message.append(req_message_ID)
-
-        # Add received message ID
-        req_message_sq = get_req_message_sq()
-        lora_tx_message += req_message_sq
-    
-    return lora_tx_message
-
 def deconstruct_message(lora_rx_message):
     """
     :param lora_rx_message: Received LoRa message
@@ -147,38 +95,85 @@ def deconstruct_message(lora_rx_message):
 
     Deconstructs RX message based on message ID
     """
-    # check RX message ID 
-    if(lora_rx_message[0] == SAT_HEARTBEAT):
-        # received satellite heartbeat, deconstruct header 
-        print("GS: Received SAT heartbeat!")
+    # Check RX message ID 
+    if(lora_rx_message[0] == SAT_HEARTBEAT_BATT):
+        # Received satellite heartbeat, deconstruct header 
+        print("Received SAT heartbeat!")
         sq = (lora_rx_message[1] << 8) + lora_rx_message[2]
-        print("GS: Sequence Count:", sq)
-        print("GS: Message Length:", lora_rx_message[3])
+        print("Sequence Count:", sq)
+        print("Message Length:", lora_rx_message[3])
 
-        # deconstruct message contents 
-        print("GS: Satellite system status:", lora_rx_message[4], lora_rx_message[5])
-        print("GS: Satellite battery SOC: " + str(lora_rx_message[6]) + "%")
-        print("GS: Satellite temperature: " + str(lora_rx_message[7]) + "*C")
-        sat_lat = convert_floating_point(lora_rx_message[8:12])
-        sat_long = convert_floating_point(lora_rx_message[12:16])
-        print("GS: Satellite is at: " + str(sat_lat) + ", " + str(sat_long))
-        sq = (lora_rx_message[17] << 8) + lora_rx_message[18]
-        print("GS: Satellite request: " + str(lora_rx_message[16]) + ", packet: " + str(sq))
+        # Deconstruct message 
+        print("Satellite system status: " + str(lora_rx_message[4]) + str(lora_rx_message[5]))
+
+        print("Battery SOC 1:", lora_rx_message[6])
+        print("Battery SOC 2:", lora_rx_message[7])
+        print("Battery SOC 3:", lora_rx_message[8])
+        print("Battery SOC 4:", lora_rx_message[9])
+        print("Battery SOC 5:", lora_rx_message[10])
+        print("Battery SOC 6:", lora_rx_message[11])
+
+        sat_current = (lora_rx_message[12] << 8) + lora_rx_message[13]
+        print("Total current draw:", sat_current)
+
+        print("Reboot count:", lora_rx_message[14])
+        print("Payload statys:", hex(lora_rx_message[15]))
+
+        sat_time = (lora_rx_message[16] << 24) + (lora_rx_message[17] << 16) + (lora_rx_message[18] << 8) + lora_rx_message[19]
+        print("Satellite time:", sat_time)
+
+        print()
     
-    elif(lora_rx_message[0] == GS_ACK):
-        print("SAT: Received GS ack!")
+    elif(lora_rx_message[0] == SAT_HEARTBEAT_SUN):
+        # Received satellite heartbeat, deconstruct header 
+        print("Received SAT heartbeat!")
         sq = (lora_rx_message[1] << 8) + lora_rx_message[2]
-        print("SAT: Sequence Count:", sq)
-        print("SAT: Message Length:", lora_rx_message[3])
+        print("Sequence Count:", sq)
+        print("Message Length:", lora_rx_message[3])
 
-        # deconstruct message contents
-        print("SAT: GS received message:", hex(lora_rx_message[4]))
-        print("SAT: GS requested message:", hex(lora_rx_message[5]))
-        sq = (lora_rx_message[6] << 8) + lora_rx_message[7]
-        print("SAT: GS requested sequence count:", sq)
+        # Deconstruct message 
+        print("Satellite system status: " + str(lora_rx_message[4]) + str(lora_rx_message[5]))
+
+        print("Sun vector X:", convert_floating_point_hp(lora_rx_message[6:10]))
+        print("Sun vector Y:", convert_floating_point_hp(lora_rx_message[10:14]))
+        print("Sun vector Z:", convert_floating_point_hp(lora_rx_message[14:18]))
+
+        sat_time = (lora_rx_message[18] << 24) + (lora_rx_message[19] << 16) + (lora_rx_message[20] << 8) + lora_rx_message[21]
+        print("Satellite time:", sat_time)
+
+        print()
+    
+    elif(lora_rx_message[0] == SAT_IMG_INFO):
+        # Image packet, do nothing 
+        return 
+
+    elif(lora_rx_message[0] == SAT_IMG_CMD):
+        # Image packet, do nothing 
+        return 
+
+    elif(lora_rx_message[0] == SAT_DEL_IMG):
+        # Image packet, do nothing 
+        return 
+    
+    else:
+        # Received satellite heartbeat, deconstruct header 
+        print("Received unknown SAT message")
+        sq = (lora_rx_message[1] << 8) + lora_rx_message[2]
+        print("Sequence Count:", sq)
+        print("Message Length:", lora_rx_message[3])
+
+        print("Message has unknown definition")
+        print()
 
 ### Helper functions for converting to FP format and back ###
 def convert_fixed_point(val):
+    """
+    :param val: Value to convert to fixed point 
+    :return: value in FP as byte list 
+
+    Convert value to FP with 2 int bytes, 2 dec bytes
+    Range: [-32767.9999], 32767.9999]
+    """
     message_list = []
     neg_bit_flag = 0
 
@@ -187,7 +182,7 @@ def convert_fixed_point(val):
         val = -1 * val
         neg_bit_flag = 1
 
-    # Isolate int and write to two bytes 
+    # Isolate int and write to 2 bytes 
     val_int = int(val)
     val_int_LSB = val_int & 0xFF
     val_int_MSB = (val_int >> 8) & 0xFF
@@ -199,7 +194,7 @@ def convert_fixed_point(val):
     message_list.append(val_int_MSB)
     message_list.append(val_int_LSB)
 
-    # Isolate decimal and write to bytes
+    # Isolate decimal and write to 2 bytes
     val_dec = val - val_int
     val_dec = int(val_dec * 65536)
     val_dec_LSB = val_dec & 0xFF
@@ -212,11 +207,18 @@ def convert_fixed_point(val):
     return message_list
 
 def convert_floating_point(message_list):
+    """
+    :param message_list: Byte list to convert to floating 
+    :return: value as floating point  
+
+    Convert FP value back to floating point 
+    Range: [-32767.9999], 32767.9999]
+    """
     val = 0
     neg_bit_flag = 0
 
     # Check -ve, extract LSB bytes for val, combine 
-    if((message_list[0] and (1 << 7) >> 7) == 1): 
+    if((message_list[0] >> 7) == 1): 
         message_list[0] &= 0x7F
         neg_bit_flag = 1
 
@@ -227,43 +229,65 @@ def convert_floating_point(message_list):
 
     return val
 
-"""
-Dummy Low Level Interface Functions
-===================================
-Placeholders for FSW API to get information for telemetry
-Delete when this code is integrated with CircuitPython FSW / GS software 
-"""
+def convert_fixed_point_hp(val):
+    """
+    :param val: Value to convert to fixed point 
+    :return: value in FP as byte list 
 
-def get_system_status():
-    # Return system status
-    return [0x1F, 0xFF]
+    Convert value to HP FP with 1 int byte, 3 dec bytes
+    Range: [-128.9999999, 128.9999999]
+    """
+    message_list = []
+    neg_bit_flag = 0
 
-def get_batt_soc():
-    # Return battery SOC % 
-    return 80
+    # If val -ve, convert to natural, set first bit of MSB 
+    if(val < 0):
+        val = -1 * val
+        neg_bit_flag = 1
 
-def get_temperature():
-    # Return satellite temp in *C
-    return 16
+    # Isolate int and write to 1 byte 
+    val_int = int(val)
+    val_int_LSB = val_int & 0xFF
 
-def get_lat(): 
-    # Return satellite latitude 
-    sat_lat = 40.445
-    return convert_fixed_point(sat_lat)
+    # Set LSB first bit as neg_bit_flag
+    val_int_LSB |= (neg_bit_flag << 7)
 
-def get_long():
-    # Return satellite longitude 
-    sat_long = -79.945278
-    return convert_fixed_point(sat_long)
+    # Add the values to the test list 
+    message_list.append(val_int_LSB)
 
-def get_prev_message_ID():
-    # Return the previous message received 
-    return 0x01
+    # Isolate decimal and write to 3 bytes
+    val_dec = val - val_int
+    val_dec = int(val_dec * 16777216)
+    val_dec_LSB  = val_dec & 0xFF
+    val_dec_MiSB = (val_dec >> 8) & 0xFF
+    val_dec_MSB  = (val_dec >> 16) & 0xFF
 
-def get_req_message_ID():
-    # Return requested message ID
-    return 0x01 
+    # Add the values to the test list 
+    message_list.append(val_dec_MSB)
+    message_list.append(val_dec_MiSB)
+    message_list.append(val_dec_LSB)
 
-def get_req_message_sq():
-    # Return requested message sequence count 
-    return [0x00, 0x001]
+    return message_list
+
+def convert_floating_point_hp(message_list):
+    """
+    :param message_list: Byte list to convert to floating 
+    :return: value as floating point  
+
+    Convert HP FP value back to floating point 
+    Range: [-128.9999999, 128.9999999]
+    """
+    val = 0
+    neg_bit_flag = 0
+
+    # Check -ve, extract LSB bytes for val, combine 
+    if((message_list[0] >> 7) == 1): 
+        message_list[0] &= 0x7F
+        neg_bit_flag = 1
+
+    # Extract bytes for val, combine 
+    val += message_list[0]
+    val += ((message_list[1] << 16) + (message_list[2] << 8) + message_list[3] + 1) / 16777216
+    if(neg_bit_flag == 1): val = -1 * val
+
+    return val
