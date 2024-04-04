@@ -44,6 +44,8 @@ class LoRa(object):
         self.wait_packet_sent_timeout = 0.2
         self.retry_timeout = 0.2
 
+        self.crc_error_count = 0
+
         # Setup the module
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(self._interrupt, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
@@ -249,7 +251,7 @@ class LoRa(object):
     def _handle_interrupt(self, channel):
         irq_flags = self._spi_read(REG_12_IRQ_FLAGS)
 
-        if self._mode == MODE_RXCONTINUOUS and (irq_flags & RX_DONE):
+        if self._mode == MODE_RXCONTINUOUS and (irq_flags & RX_DONE) and (self.crc_error() == 0):
             packet_len = self._spi_read(REG_13_RX_NB_BYTES)
             self._spi_write(REG_0D_FIFO_ADDR_PTR, self._spi_read(REG_10_FIFO_RX_CURRENT_ADDR))
 
@@ -326,7 +328,12 @@ class LoRa(object):
 
     def crc_error(self):
         """crc status. Taken from PyCubed Repo by Max Holliday"""
-        return (self._spi_read(REG_12_IRQ_FLAGS) & 0x20) >> 5
+        error = (self._spi_read(REG_12_IRQ_FLAGS) & 0x20) >> 5
+
+        if (error == 1):
+            print("CRC Error!")
+            self.crc_error_count += 1
+        return error
 
     def close(self):
         GPIO.cleanup()

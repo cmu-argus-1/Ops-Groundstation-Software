@@ -37,8 +37,6 @@ class GROUNDSTATION:
         self.new_session = False
         # Track the number of commands sent before an image is requested
         self.num_commands_sent = 0
-        # CRC Error Count
-        self.crc_error_count = 0
         # List of commands to send before image request
         self.cmd_queue = [SAT_HEARTBEAT_BATT]
         self.cmd_queue_size = len(self.cmd_queue)
@@ -125,7 +123,7 @@ class GROUNDSTATION:
             self.unpack_message(lora)
             receive_multiple = self.rx_req_ack
 
-        if ((self.new_session == True) or (self.crc_error_count > 0)): 
+        if ((self.new_session == True) or (lora.crc_error_count > 0)): 
             # If last command was an image, refetch last portion of image 
             # to make sure it was received correctly
             if (self.gs_cmd == SAT_IMG_CMD):
@@ -151,10 +149,6 @@ class GROUNDSTATION:
             lora - Declaration of lora class
     '''
     def unpack_message(self,lora):
-        if lora.enable_crc and lora.crc_error():
-            self.crc_error_count += 1
-            print('crc error.')
-
         # Get the current time
         current_time = datetime.datetime.now()
         # Format the current time
@@ -346,7 +340,7 @@ class GROUNDSTATION:
             while not lora.wait_packet_sent():
                 pass
 
-        self.crc_error_count = 0
+        lora.crc_error_count = 0
 
         # Set GS TX pin LOW!
         GPIO.output(self.tx_ctrl, GPIO.LOW)
