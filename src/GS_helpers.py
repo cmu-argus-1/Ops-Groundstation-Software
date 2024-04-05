@@ -5,7 +5,7 @@ import sys
 import os
 import datetime
 import boto3
-import RPi.GPIO as GPIO
+from gpiozero import LED
 
 AWS_S3_BUCKET_NAME = 'spacecraft-files'
 AWS_REGION = 'us-east-2'
@@ -65,20 +65,14 @@ class GROUNDSTATION:
         self.ota_sat_sequence_counter = 0
         self.send_mod = 10
 
-        # Setup groundstation GPIO
-        self.rx_ctrl = 22
-        self.tx_ctrl = 23
-
         # Setup timestamp for timing packet arrival
         self.start_time = time.time()
         self.packet_time = 0
         self.time_diff = 0
 
         # Set up the GPIO pin as an output pin
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(self.rx_ctrl, GPIO.OUT)
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(self.tx_ctrl, GPIO.OUT)
+        self.rx_ctrl = LED(22)
+        self.tx_ctrl = LED(23)
 
         # Logging Information
         # Get the current time
@@ -105,7 +99,7 @@ class GROUNDSTATION:
     '''
     def receive_message(self,lora):
         # Pull GS RX pin HIGH!
-        GPIO.output(self.rx_ctrl, GPIO.HIGH)
+        self.rx_ctrl.on()
         global received_success 
         receive_multiple = 0
         while (receive_multiple == 0):
@@ -140,7 +134,7 @@ class GROUNDSTATION:
                     self.ota_sequence_counter = 0
 
         # Turn GS RX pin LOW!
-        GPIO.output(self.rx_ctrl, GPIO.LOW)
+        self.rx_ctrl.off()
 
     '''
         Name: unpack_message
@@ -269,7 +263,7 @@ class GROUNDSTATION:
     '''
     def transmit_message(self,lora):
         # Pull GS TX pin HIGH!
-        GPIO.output(self.tx_ctrl, GPIO.HIGH)
+        self.tx_ctrl.on()
         send_multiple = True
         while (send_multiple):
             time.sleep(0.15)
@@ -343,7 +337,7 @@ class GROUNDSTATION:
         lora.crc_error_count = 0
 
         # Set GS TX pin LOW!
-        GPIO.output(self.tx_ctrl, GPIO.LOW)
+        self.tx_ctrl.off()
 
     '''
         Name: pack_telemetry_command

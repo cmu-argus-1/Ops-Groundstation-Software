@@ -4,7 +4,7 @@ import math
 from collections import namedtuple
 from random import random
 
-import RPi.GPIO as GPIO
+from gpiozero import Button
 import spidev
 
 from constants import *
@@ -47,9 +47,8 @@ class LoRa(object):
         self.crc_error_count = 0
 
         # Setup the module
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(self._interrupt, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-        GPIO.add_event_detect(self._interrupt, GPIO.RISING, callback=self._handle_interrupt)
+        btn = Button(self._interrupt,pull_up=False)
+        btn.when_pressed = self._handle_interrupt
 
         self.spi = spidev.SpiDev()
         self.spi.open(0, self._channel)
@@ -336,6 +335,6 @@ class LoRa(object):
         return error
 
     def close(self):
-        GPIO.cleanup()
+        # GPIO.cleanup()
         self.spi.close()
 
