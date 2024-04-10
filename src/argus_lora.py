@@ -96,7 +96,7 @@ class LoRa(object):
         self._spi_write(REG_09_PA_CONFIG, PA_SELECT | (self._tx_power - 5))
         '''
         self._spi_write(REG_4D_PA_DAC, 0x4)
-        self._spi_write(REG_09_PA_CONFIG, 0x80)
+        self._spi_write(REG_09_PA_CONFIG, 0xFF)
         # print(self._spi_read(REG_4D_PA_DAC))
         # print(self._spi_read(REG_09_PA_CONFIG))
 

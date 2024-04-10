@@ -35,13 +35,14 @@ class GROUNDSTATION:
         # New contact from the satellite
         # Changes to True when heartbeat is received, false when image transfer starts
         self.new_session = False
+        self.reset_file_array = False
         # Track the number of commands sent before an image is requested
         self.num_commands_sent = 0
         # List of commands to send before image request
-        self.cmd_queue = [SAT_HEARTBEAT_BATT]
+        self.cmd_queue = [SAT_HEARTBEAT_BATT, GS_OTA_REQ]
         self.cmd_queue_size = len(self.cmd_queue)
         # Commands issued by the groundstation
-        self.gs_cmd = 0x0
+        self.gs_cmd = 0xFF
         # Sequence counter for images
         self.sequence_counter = 0
         # References to the image we are requesting
@@ -117,7 +118,8 @@ class GROUNDSTATION:
             self.unpack_message(lora)
             receive_multiple = self.rx_req_ack
 
-        if ((self.new_session == True) or (lora.crc_error_count > 0)): 
+        if ((self.reset_file_array == True) or (lora.crc_error_count > 0)):
+            self.reset_file_array = False
             # If last command was an image, refetch last portion of image 
             # to make sure it was received correctly
             if (self.gs_cmd == SAT_IMG_CMD):
@@ -128,6 +130,7 @@ class GROUNDSTATION:
             # If last command was an OTA, resend the last portion of the file 
             # to make sure it was received correctly.
             elif (self.gs_cmd == GS_OTA_REQ):
+                print(lora.crc_error_count)
                 if (self.ota_sequence_counter >= self.send_mod):
                     self.ota_sequence_counter -= self.send_mod
                 else:
@@ -162,10 +165,12 @@ class GROUNDSTATION:
 
         if ((self.rx_message_ID == SAT_HEARTBEAT_BATT) or (self.rx_message_ID == SAT_HEARTBEAT_SUN) or \
             (self.rx_message_ID == SAT_HEARTBEAT_IMU) or (self.rx_message_ID == SAT_HEARTBEAT_GPS)):
-            # print("Heartbeat received!")
-            if (not self.new_session):
-                self.num_commands_sent = 0
-            self.new_session = True
+            if (self.rx_message_ID != self.gs_cmd):
+                print("Heartbeat received!")
+                if (not self.new_session):
+                    self.num_commands_sent = 0
+                self.new_session = True
+                self.reset_file_array = True
         elif self.rx_message_ID == SAT_IMG_INFO:
             self.image_info_unpack(lora)
         elif (self.rx_message_ID == SAT_IMG_CMD):
