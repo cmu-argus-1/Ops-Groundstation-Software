@@ -59,7 +59,7 @@ def gs_unpack_header(lora):
             message_sequence_count
             message_sizes
     """
-    ack_req = int.from_bytes((lora._last_payload.message[0:1]),byteorder='big') & 0b10000000
+    ack_req = (int.from_bytes((lora._last_payload.message[0:1]),byteorder='big') & 0b10000000) >> 7
     message_ID = int.from_bytes((lora._last_payload.message[0:1]),byteorder='big') & 0b01111111
     message_sequence_count = int.from_bytes(lora._last_payload.message[1:3],byteorder='big')
     message_size = int.from_bytes(lora._last_payload.message[3:4],byteorder='big')

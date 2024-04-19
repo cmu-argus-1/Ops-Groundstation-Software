@@ -1,5 +1,6 @@
 from enum import Enum
 from protocol_database import *
+from influx_db import *
 import time
 import sys
 import os
@@ -39,7 +40,7 @@ class GROUNDSTATION:
         # Track the number of commands sent before an image is requested
         self.num_commands_sent = 0
         # List of commands to send before image request
-        self.cmd_queue = [SAT_HEARTBEAT_BATT, GS_OTA_REQ]
+        self.cmd_queue = [SAT_HEARTBEAT_BATT]
         self.cmd_queue_size = len(self.cmd_queue)
         # Commands issued by the groundstation
         self.gs_cmd = 0xFF
@@ -74,6 +75,8 @@ class GROUNDSTATION:
         # Set up the GPIO pin as an output pin
         self.rx_ctrl = LED(22)
         self.tx_ctrl = LED(23)
+
+        self.influx = DATABASE()
 
         # Logging Information
         # Get the current time
@@ -162,6 +165,7 @@ class GROUNDSTATION:
 
         # Unpack header information - Received header, sequence count, and message size
         self.rx_req_ack, self.rx_message_ID, self.rx_message_sequence_count, self.rx_message_size = gs_unpack_header(lora)
+        self.influx.upload_last_received_packet(self.rx_req_ack, self.rx_message_ID, self.rx_message_sequence_count, self.rx_message_size)
 
         if ((self.rx_message_ID == SAT_HEARTBEAT_BATT) or (self.rx_message_ID == SAT_HEARTBEAT_SUN) or \
             (self.rx_message_ID == SAT_HEARTBEAT_IMU) or (self.rx_message_ID == SAT_HEARTBEAT_GPS)):
@@ -259,6 +263,7 @@ class GROUNDSTATION:
             print(f'upload_log_to_aws response: {response}')
             self.image_array.clear()
             os.remove(filename)
+            self.influx.upload_image_info(self.sat_images.image_UID, self.sat_images.image_size, self.sat_images.image_message_count)
 
     '''
         Name: transmit_message
