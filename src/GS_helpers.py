@@ -9,6 +9,7 @@ import boto3
 from gpiozero import LED
 
 AWS_S3_BUCKET_NAME = 'spacecraft-files'
+AWS_PUBLIC_BUCKET = 'public-argus-bucket'
 AWS_REGION = 'us-east-2'
 
 # Globals
@@ -66,6 +67,8 @@ class GROUNDSTATION:
         # OTA satellite sequence counter
         self.ota_sat_sequence_counter = 0
         self.send_mod = 10
+        # Missed message
+        self.missed_message = False
 
         # Setup timestamp for timing packet arrival
         self.start_time = time.time()
@@ -121,8 +124,9 @@ class GROUNDSTATION:
             self.unpack_message(lora)
             receive_multiple = self.rx_req_ack
 
-        if ((self.reset_file_array == True) or (lora.crc_error_count > 0)):
+        if ((self.reset_file_array == True) or (self.missed_message == True) or (lora.crc_error_count > 0)):
             self.reset_file_array = False
+            self.missed_message = False
             # If last command was an image, refetch last portion of image 
             # to make sure it was received correctly
             if (self.gs_cmd == SAT_IMG_CMD):
@@ -240,9 +244,13 @@ class GROUNDSTATION:
     '''
     def image_unpack(self,lora):
         self.image_array.append(lora._last_payload.message[4:self.rx_message_size + 4])
+
+        if (self.sequence_counter != self.rx_message_sequence_count):
+            self.missed_message = True
+
         # Increment sequence counter
         self.sequence_counter += 1
-        if self.rx_message_sequence_count == (self.target_sequence_count - 1):
+        if self.sequence_counter >= self.target_sequence_count:
             # Get the current time
             current_time = datetime.datetime.now()
 
@@ -251,18 +259,27 @@ class GROUNDSTATION:
 
             # Create image name
             filename = f"earth_image_{formatted_time}.jpg"
+            refresh_file = f"latest_earth_image.jpg"
 
             rec_bytes = open(filename,'wb')
+            more_bytes = open(refresh_file,'wb')
             
             for i in range(self.target_sequence_count):
-                rec_bytes.write(self.image_array[i])         
+                rec_bytes.write(self.image_array[i])       
+                more_bytes.write(self.image_array[i])  
 
             rec_bytes.close()
+            more_bytes.close()
 
             response = self.s3_client.upload_file(filename, AWS_S3_BUCKET_NAME, filename)
             print(f'upload_log_to_aws response: {response}')
+
+            response = self.s3_client.upload_file(refresh_file, AWS_PUBLIC_BUCKET, refresh_file)
+            print(f'upload_log_to_aws response: {response}')
+
             self.image_array.clear()
             os.remove(filename)
+            os.remove(refresh_file)
             self.influx.upload_image_info(self.sat_images.image_UID, self.sat_images.image_size, self.sat_images.image_message_count)
 
     '''
