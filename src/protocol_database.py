@@ -13,6 +13,8 @@ LENGTH     : 1 byte
 Authors: Akshat Sahay, DJ Morvay
 """
 
+from influx_db import *
+
 # Message ID definitions 
 SAT_HEARTBEAT_BATT  = 0x00
 SAT_HEARTBEAT_SUN   = 0x01
@@ -47,7 +49,7 @@ class OTA:
         self.file_message_count = 0
 
 # Function definitions 
-def gs_unpack_header(lora):
+def gs_unpack_header(lora, influx):
     """
         Name: gs_unpack_header
         Description: Unpacks the header information (message ID, message sequence count, and message size)
@@ -66,7 +68,7 @@ def gs_unpack_header(lora):
 
     lora_rx_message = list(lora._last_payload.message)
     lora_rx_message[0] = lora_rx_message[0] & 0b01111111
-    deconstruct_message(lora_rx_message)
+    deconstruct_message(lora_rx_message, influx)
 
     return ack_req, message_ID, message_sequence_count, message_size
 
@@ -88,7 +90,7 @@ def image_meta_info(lora):
 
     return stored_image
 
-def deconstruct_message(lora_rx_message):
+def deconstruct_message(lora_rx_message, influx):
     """
     :param lora_rx_message: Received LoRa message
     :return: None
@@ -106,21 +108,19 @@ def deconstruct_message(lora_rx_message):
         # Deconstruct message 
         print("Satellite system status: " + str(lora_rx_message[4]) + str(lora_rx_message[5]))
 
-        print("Battery SOC 1:", lora_rx_message[6])
-        print("Battery SOC 2:", lora_rx_message[7])
-        print("Battery SOC 3:", lora_rx_message[8])
-        print("Battery SOC 4:", lora_rx_message[9])
-        print("Battery SOC 5:", lora_rx_message[10])
-        print("Battery SOC 6:", lora_rx_message[11])
+        print("Battery SOC:", lora_rx_message[6])
 
-        sat_current = (lora_rx_message[12] << 8) + lora_rx_message[13]
+        sat_current = (lora_rx_message[7] << 8) + lora_rx_message[8]
         print("Total current draw:", sat_current)
 
-        print("Reboot count:", lora_rx_message[14])
-        print("Payload statys:", hex(lora_rx_message[15]))
+        print("Reboot count:", lora_rx_message[9])
 
-        sat_time = (lora_rx_message[16] << 24) + (lora_rx_message[17] << 16) + (lora_rx_message[18] << 8) + lora_rx_message[19]
+        sat_time = (lora_rx_message[10] << 24) + (lora_rx_message[11] << 16) + (lora_rx_message[12] << 8) + lora_rx_message[13]
         print("Satellite time:", sat_time)
+
+        influx.upload_battery_info(lora_rx_message[6], sat_current)
+        influx.upload_system_info(str(lora_rx_message[4]) + str(lora_rx_message[5]), sat_time)
+        influx.upload_reboot(lora_rx_message[9])
 
         print()
     
@@ -141,7 +141,48 @@ def deconstruct_message(lora_rx_message):
         sat_time = (lora_rx_message[18] << 24) + (lora_rx_message[19] << 16) + (lora_rx_message[20] << 8) + lora_rx_message[21]
         print("Satellite time:", sat_time)
 
+        influx.upload_sun_vector(convert_floating_point_hp(lora_rx_message[6:10]), convert_floating_point_hp(lora_rx_message[10:14]), convert_floating_point_hp(lora_rx_message[14:18]))
+        influx.upload_system_info(str(lora_rx_message[4]) + str(lora_rx_message[5]), sat_time)
+
         print()
+
+    elif(lora_rx_message[0] == SAT_HEARTBEAT_IMU):
+        # Received satellite heartbeat, deconstruct header 
+        print("Received SAT heartbeat!")
+        sq = (lora_rx_message[1] << 8) + lora_rx_message[2]
+        print("Sequence Count:", sq)
+        print("Message Length:", lora_rx_message[3])
+
+        # Deconstruct message 
+        print("Satellite system status: " + str(lora_rx_message[4]) + str(lora_rx_message[5]))
+
+        print("Magnetometer X:", convert_floating_point(lora_rx_message[6:10]))
+        print("Magnetometer Y:", convert_floating_point(lora_rx_message[10:14]))
+        print("Magnetometer Z:", convert_floating_point(lora_rx_message[14:18]))
+
+        print("Gyroscope X:", convert_floating_point(lora_rx_message[18:22]))
+        print("Gyroscope Y:", convert_floating_point(lora_rx_message[22:26]))
+        print("Gyroscope Z:", convert_floating_point(lora_rx_message[26:30]))
+
+        influx.upload_IMU_Info(convert_floating_point(lora_rx_message[6:10]), convert_floating_point(lora_rx_message[10:14]), \
+                               convert_floating_point(lora_rx_message[14:18]), convert_floating_point(lora_rx_message[18:22]), \
+                               convert_floating_point(lora_rx_message[22:26]), convert_floating_point(lora_rx_message[26:30]))
+
+        sat_time = (lora_rx_message[30] << 24) + (lora_rx_message[31] << 16) + (lora_rx_message[32] << 8) + lora_rx_message[33]
+        print("Satellite time:", sat_time)
+
+        influx.upload_system_info(str(lora_rx_message[4]) + str(lora_rx_message[5]), sat_time)
+
+        print()
+    
+    elif(lora_rx_message[0] == SAT_HEARTBEAT_GPS):
+        # Received satellite heartbeat, deconstruct header 
+        print("Received SAT heartbeat!")
+        sq = (lora_rx_message[1] << 8) + lora_rx_message[2]
+        print("Sequence Count:", sq)
+        print("Message Length:", lora_rx_message[3])
+
+        print("TODO: Add message decoding for GPS heartbeat")
     
     elif(lora_rx_message[0] == SAT_IMG_INFO):
         # Image packet, do nothing 

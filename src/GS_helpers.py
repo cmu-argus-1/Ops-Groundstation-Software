@@ -125,11 +125,9 @@ class GROUNDSTATION:
             receive_multiple = self.rx_req_ack
 
         if ((self.reset_file_array == True) or (self.missed_message == True) or (lora.crc_error_count > 0)):
-            self.reset_file_array = False
-            self.missed_message = False
             # If last command was an image, refetch last portion of image 
             # to make sure it was received correctly
-            if (self.gs_cmd == SAT_IMG_CMD):
+            if ((self.gs_cmd == SAT_IMG_CMD) and (self.missed_message == True)):
                 high_sequence_count = self.sequence_counter
                 while ((self.sequence_counter > 0) and (self.sequence_counter > (high_sequence_count - self.send_mod))):
                     self.sequence_counter -= 1
@@ -142,6 +140,9 @@ class GROUNDSTATION:
                     self.ota_sequence_counter -= self.send_mod
                 else:
                     self.ota_sequence_counter = 0
+            # Reset variables
+            self.reset_file_array = False
+            self.missed_message = False
 
         # Turn GS RX pin LOW!
         self.rx_ctrl.off()
@@ -168,13 +169,13 @@ class GROUNDSTATION:
         self.log.write(payload)
 
         # Unpack header information - Received header, sequence count, and message size
-        self.rx_req_ack, self.rx_message_ID, self.rx_message_sequence_count, self.rx_message_size = gs_unpack_header(lora)
+        self.rx_req_ack, self.rx_message_ID, self.rx_message_sequence_count, self.rx_message_size = gs_unpack_header(lora, self.influx)
         self.influx.upload_last_received_packet(self.rx_req_ack, self.rx_message_ID, self.rx_message_sequence_count, self.rx_message_size)
 
         if ((self.rx_message_ID == SAT_HEARTBEAT_BATT) or (self.rx_message_ID == SAT_HEARTBEAT_SUN) or \
             (self.rx_message_ID == SAT_HEARTBEAT_IMU) or (self.rx_message_ID == SAT_HEARTBEAT_GPS)):
             if (self.rx_message_ID != self.gs_cmd):
-                print("Heartbeat received!")
+                # print("Heartbeat received!")
                 if (not self.new_session):
                     self.num_commands_sent = 0
                 self.new_session = True
@@ -221,9 +222,13 @@ class GROUNDSTATION:
         print("Image info received!")
         print("Message received header:",list(lora._last_payload.message[0:4]))
 
-        print("Image UID:",self.sat_images.image_UID)
-        print("Image size:",self.sat_images.image_size,"KB")
-        print("Image message count:",self.sat_images.image_message_count)
+        if(self.sat_images.image_UID == 0x00):
+            print("No images stored on satellite")
+
+        else:
+            print("Image UID:",self.sat_images.image_UID)
+            print("Image size:",self.sat_images.image_size,"KB")
+            print("Image message count:",self.sat_images.image_message_count)
 
     '''
         Name: image_verification
@@ -398,6 +403,7 @@ class GROUNDSTATION:
             lora_tx_message = lora_tx_header + lora_tx_payload
             # Session is no longer "new" after telemetry has been retrieved
             self.new_session = False
+
         elif ((self.sequence_counter >= self.target_sequence_count) and (self.target_sequence_count != 0)):
             self.gs_cmd = SAT_DEL_IMG
             lora_tx_header = bytes([REQ_ACK_NUM | GS_ACK, 0x00, 0x01, 0x4])
@@ -405,19 +411,31 @@ class GROUNDSTATION:
             lora_tx_message = lora_tx_header + lora_tx_payload
             # Reset sequence counter and get new image
             self.sequence_counter = 0
+
         else:
-            self.target_image_UID = self.sat_images.image_UID
-            self.target_sequence_count = self.sat_images.image_message_count       
-            self.gs_cmd = SAT_IMG_CMD
+            # Check image UID to see if SAT has a stored image or not 
+            if(self.sat_images.image_UID == 0x00):
+                # No image on satellite, request image info again? 
+                self.gs_cmd = SAT_IMG_INFO
+                lora_tx_header = bytes([REQ_ACK_NUM | GS_ACK, 0x00, 0x01, 0x4])
+                lora_tx_payload = (self.rx_message_ID.to_bytes(1,'big') + self.gs_cmd.to_bytes(1,'big') + (0x0).to_bytes(2,'big'))
+                lora_tx_message = lora_tx_header + lora_tx_payload
+                # Session is no longer "new" after telemetry has been retrieved
+                self.new_session = False
 
-            # Output average packet time between last two acknowledgements
-            sat_send_mod = 10 
-            print(f'Avg. transmission time: {self.packet_time / sat_send_mod}')
-            self.packet_time = 0
+            else:
+                self.target_image_UID = self.sat_images.image_UID
+                self.target_sequence_count = self.sat_images.image_message_count       
+                self.gs_cmd = SAT_IMG_CMD
 
-            lora_tx_header = bytes([REQ_ACK_NUM | GS_ACK, 0x00, 0x00, 0x4])
-            lora_tx_payload = (self.rx_message_ID.to_bytes(1,'big') + self.gs_cmd.to_bytes(1,'big') + self.sequence_counter.to_bytes(2,'big'))
-            lora_tx_message = lora_tx_header + lora_tx_payload
+                # Output average packet time between last two acknowledgements
+                sat_send_mod = 10 
+                print(f'Avg. transmission time: {self.packet_time / sat_send_mod}')
+                self.packet_time = 0
+
+                lora_tx_header = bytes([REQ_ACK_NUM | GS_ACK, 0x00, 0x00, 0x4])
+                lora_tx_payload = (self.rx_message_ID.to_bytes(1,'big') + self.gs_cmd.to_bytes(1,'big') + self.sequence_counter.to_bytes(2,'big'))
+                lora_tx_message = lora_tx_header + lora_tx_payload
 
         return lora_tx_message
 

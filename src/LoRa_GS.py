@@ -19,7 +19,7 @@ signal.signal(signal.SIGINT, lambda signum, frame: hard_exit(lora, GS, signum, f
 
 while True:
     GS.receive_message(lora)
-    GS.transmit_message(lora)
+    GS.transmit_message(lora) # RX only mode for testing
 
 GS.close_log()
 lora.close()
