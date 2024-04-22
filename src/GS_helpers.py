@@ -41,7 +41,7 @@ class GROUNDSTATION:
         # Track the number of commands sent before an image is requested
         self.num_commands_sent = 0
         # List of commands to send before image request
-        self.cmd_queue = [SAT_HEARTBEAT_BATT]
+        self.cmd_queue = self.get_commands()
         self.cmd_queue_size = len(self.cmd_queue)
         # Commands issued by the groundstation
         self.gs_cmd = 0xFF
@@ -180,6 +180,10 @@ class GROUNDSTATION:
                     self.num_commands_sent = 0
                 self.new_session = True
                 self.reset_file_array = True
+                
+                self.cmd_queue.clear()
+                self.cmd_queue = self.get_commands()
+
         elif self.rx_message_ID == SAT_IMG_INFO:
             self.image_info_unpack(lora)
         elif (self.rx_message_ID == SAT_IMG_CMD):
@@ -492,6 +496,31 @@ class GROUNDSTATION:
             bytes_remaining -= 196
         # Close file when complete
         send_bytes.close()
+
+    '''
+        Name: get_commands
+        Description: Gets Ground Station commands from a file.
+    '''
+    def get_commands(self):
+        # Open the file in read mode
+        with open('groundstation_commands.txt', 'r') as file:
+            # Read all lines from the file
+            lines = file.readlines()
+
+        # Initialize an empty list to store the items
+        items = []
+        import protocol_database
+
+        # Iterate over each line
+        for line in lines:
+            # Split the line based on the '.' character
+            parts = line.split('.', 1)
+            # If there are exactly 2 parts (number and item), add the item to the list
+            if (len(parts) == 2) and (parts[1] != ''):
+                command = parts[1].strip()
+                items.append(getattr(protocol_database, command, None))
+
+        return items
 
     def close_log(self):
         self.log.close()

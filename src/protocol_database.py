@@ -110,7 +110,7 @@ def deconstruct_message(lora_rx_message, influx):
 
         print("Battery SOC:", lora_rx_message[6])
 
-        sat_current = (lora_rx_message[7] << 8) + lora_rx_message[8]
+        sat_current = int(((lora_rx_message[7] << 8) + lora_rx_message[8])/1000)
         print("Total current draw:", sat_current)
 
         print("Reboot count:", lora_rx_message[9])
