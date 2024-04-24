@@ -398,7 +398,7 @@ class GROUNDSTATION:
         # Payload to transmit
         # Simulated for now!
 
-        if ((self.gs_cmd == SAT_DEL_IMG) or (self.new_session == True)):
+        if (self.new_session == True):
             self.time_diff = time.time()
             
             self.gs_cmd = SAT_IMG_INFO
@@ -407,6 +407,13 @@ class GROUNDSTATION:
             lora_tx_message = lora_tx_header + lora_tx_payload
             # Session is no longer "new" after telemetry has been retrieved
             self.new_session = False
+
+        elif (self.gs_cmd == SAT_DEL_IMG):
+            # Downlinked an image, request to kill comms sequence
+            self.gs_cmd = GS_STOP
+            lora_tx_header = bytes([REQ_ACK_NUM | GS_ACK, 0x00, 0x01, 0x4])
+            lora_tx_payload = (self.rx_message_ID.to_bytes(1,'big') + self.gs_cmd.to_bytes(1,'big') + (0x0).to_bytes(2,'big'))
+            lora_tx_message = lora_tx_header + lora_tx_payload
 
         elif ((self.sequence_counter >= self.target_sequence_count) and (self.target_sequence_count != 0)):
             self.gs_cmd = SAT_DEL_IMG
@@ -419,13 +426,11 @@ class GROUNDSTATION:
         else:
             # Check image UID to see if SAT has a stored image or not 
             if(self.sat_images.image_UID == 0x00):
-                # No image on satellite, request image info again? 
-                self.gs_cmd = SAT_IMG_INFO
+                # No image on satellite, request to kill comms sequence
+                self.gs_cmd = GS_STOP
                 lora_tx_header = bytes([REQ_ACK_NUM | GS_ACK, 0x00, 0x01, 0x4])
                 lora_tx_payload = (self.rx_message_ID.to_bytes(1,'big') + self.gs_cmd.to_bytes(1,'big') + (0x0).to_bytes(2,'big'))
                 lora_tx_message = lora_tx_header + lora_tx_payload
-                # Session is no longer "new" after telemetry has been retrieved
-                self.new_session = False
 
             else:
                 self.target_image_UID = self.sat_images.image_UID

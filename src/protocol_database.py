@@ -27,8 +27,10 @@ SAT_ACK = 0x09
 GS_OTA_REQ = 0x14
 SAT_OTA_RES = 0x15
 
-SAT_IMG_INFO   = 0x21
+SAT_IMG_INFO = 0x21
 SAT_DEL_IMG = 0x22
+
+GS_STOP = 0x30
 
 SAT_IMG_CMD = 0x50
 
@@ -110,7 +112,7 @@ def deconstruct_message(lora_rx_message, influx):
 
         print("Battery SOC:", lora_rx_message[6])
 
-        sat_current = int(((lora_rx_message[7] << 8) + lora_rx_message[8])/1000)
+        sat_current = int((lora_rx_message[7] << 8) + lora_rx_message[8])
         print("Total current draw:", sat_current)
 
         print("Reboot count:", lora_rx_message[9])
