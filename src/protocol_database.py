@@ -20,6 +20,7 @@ SAT_HEARTBEAT_BATT  = 0x00
 SAT_HEARTBEAT_SUN   = 0x01
 SAT_HEARTBEAT_IMU   = 0x02
 SAT_HEARTBEAT_GPS   = 0x03
+SAT_HEARTBEAT_JETSON = 0x04
 
 GS_ACK  = 0x08
 SAT_ACK = 0x09
@@ -185,6 +186,27 @@ def deconstruct_message(lora_rx_message, influx):
         print("Message Length:", lora_rx_message[3])
 
         print("TODO: Add message decoding for GPS heartbeat")
+    
+    elif(lora_rx_message[0] == SAT_HEARTBEAT_JETSON):
+        # Received satellite heartbeat, deconstruct header 
+        print("Received SAT heartbeat!")
+        sq = (lora_rx_message[1] << 8) + lora_rx_message[2]
+        print("Sequence Count:", sq)
+        print("Message Length:", lora_rx_message[3])
+
+        # Deconstruct message 
+        print("Satellite system status: " + str(lora_rx_message[4]) + str(lora_rx_message[5]))
+
+        print("RAM Usage:", lora_rx_message[6])
+        print("Disk Usage:", lora_rx_message[7])
+        print("CPU Temperature:", lora_rx_message[8])
+        print("GPU Temperature:", lora_rx_message[9])
+
+        sat_time = (lora_rx_message[10] << 24) + (lora_rx_message[11] << 16) + (lora_rx_message[12] << 8) + lora_rx_message[13]
+        print("Satellite time:", sat_time)
+        
+        influx.upload_jetson_info(lora_rx_message[6], lora_rx_message[7], lora_rx_message[8], lora_rx_message[9])
+        influx.upload_system_info(str(lora_rx_message[4]) + str(lora_rx_message[5]), sat_time)
     
     elif(lora_rx_message[0] == SAT_IMG_INFO):
         # Image packet, do nothing 

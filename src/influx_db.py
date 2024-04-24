@@ -194,6 +194,38 @@ class DATABASE:
             
             self.client.write(database=self.database, record=point)
 
+    def upload_jetson_info(self, ram_usage, disk_usage, cpu_temp, gpu_temp):
+        data = {
+            "point1": {
+                "Subsystem": "Jetson",
+                "Jetson Info": {
+                    "RAM Usage": {
+                        "RAM": ram_usage,
+                    },
+                    "Disk Usage": {
+                        "Disk": disk_usage,
+                    },
+                    "CPU Temperature": {
+                        "C_Temp": cpu_temp,
+                    },
+                    "GPU Temperature": {
+                        "G_Temp": gpu_temp,
+                    }
+                }
+            }
+        }
+
+        for key in data:
+            point = Point("argus-1").tag("Subsystem", data[key]["Subsystem"])
+            
+            # Add fields for each item under "Jetson Info"
+            for item_key, item_value in data[key]["Jetson Info"].items():
+                field_name = list(item_value.keys())[0]  # Extracting the key of the inner dictionary
+                field_value = item_value[field_name]
+                point.field(item_key, field_value)
+            
+            self.client.write(database=self.database, record=point)
+
     def upload_reboot(self, reboot):
         data = {
             "point1": {
