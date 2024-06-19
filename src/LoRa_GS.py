@@ -1,13 +1,10 @@
 from argus_lora import LoRa, ModemConfig
-from protocol_database import *
-from GS_helpers import *
-import time
+from GS_helpers import GROUNDSTATION, on_recv, hard_exit
 import signal
-import sys
 
 GS = GROUNDSTATION()
 
-## ---------- MAIN CODE STARTS HERE! ---------- ##
+# ---------- MAIN CODE STARTS HERE! ---------- #
 # LoRa module setup
 # Use chip select 0. GPIO pin 19 will be used for interrupts
 # The address of this device will be set to 10
@@ -19,7 +16,7 @@ signal.signal(signal.SIGINT, lambda signum, frame: hard_exit(lora, GS, signum, f
 
 while True:
     GS.receive_message(lora)
-    GS.transmit_message(lora) # RX only mode for testing
+    GS.transmit_message(lora)  # RX only mode for testing
 
 GS.close_log()
 lora.close()
