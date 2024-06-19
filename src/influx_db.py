@@ -1,4 +1,5 @@
 from influxdb_client_3 import InfluxDBClient3, Point
+from keys import DB_ACCESS_TOKEN
 
 
 class DATABASE:
@@ -8,6 +9,10 @@ class DATABASE:
     '''
     def __init__(self):
         self.host = "https://us-east-1-1.aws.cloud2.influxdata.com"
+
+        self.org = "argus"
+
+        self.token = DB_ACCESS_TOKEN
 
         self.client = InfluxDBClient3(host=self.host, token=self.token, org=self.org)
 
