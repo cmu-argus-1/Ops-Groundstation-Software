@@ -5,7 +5,7 @@ env/
 *.pyc
 
 # API secrets
-constants.py
+keys.py
 
 # MacOS files
 .DS_Store
