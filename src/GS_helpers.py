@@ -93,6 +93,9 @@ class GROUNDSTATION:
         # Format the current time
         formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
 
+        if "logs" not in os.listdir():
+            os.mkdir("logs")
+
         # Create image name
         self.log_name = f"logs/GS_Logs_{formatted_time}.txt"
 
