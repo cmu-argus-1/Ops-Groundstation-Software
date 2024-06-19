@@ -1,12 +1,15 @@
-from enum import Enum
-from protocol_database import *
-from influx_db import *
-import time
-import sys
-import os
 import datetime
+import os
+import sys
+import time
+from enum import Enum
+
 import boto3
 from gpiozero import LED
+
+from influx_db import *
+from protocol_database import *
+from constants import AWS_ACCESS_KEY, AWS_SECRET_KEY
 
 AWS_S3_BUCKET_NAME = 'spacecraft-files'
 AWS_PUBLIC_BUCKET = 'public-argus-bucket'
