@@ -7,7 +7,7 @@ from enum import Enum
 import boto3
 from gpiozero import LED
 
-from keys import AWS_ACCESS_KEY, AWS_SECRET_KEY
+from src.keys import AWS_ACCESS_KEY, AWS_SECRET_KEY
 from influx_db import DATABASE
 from protocol_database import IMAGES, OTA, Definitions, gs_unpack_header
 
