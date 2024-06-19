@@ -94,7 +94,7 @@ class GROUNDSTATION:
         formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
 
         # Create image name
-        self.log_name = f"GS_Logs_{formatted_time}.txt"
+        self.log_name = f"logs/GS_Logs_{formatted_time}.txt"
 
         self.log = open(self.log_name, 'wb')
 

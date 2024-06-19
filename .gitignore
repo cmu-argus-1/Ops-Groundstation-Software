@@ -9,3 +9,6 @@ keys.py
 
 # MacOS files
 .DS_Store
+
+# log files
+src/logs/
