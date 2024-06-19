@@ -1,0 +1,11 @@
+# Python environment
+env/
+
+# pycache files
+*.pyc
+
+# API secrets
+constants.py
+
+# MacOS files
+.DS_Store
