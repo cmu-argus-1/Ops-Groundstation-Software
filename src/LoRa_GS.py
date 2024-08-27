@@ -1,5 +1,5 @@
 from argus_lora import LoRa, ModemConfig
-from GS_helpers import GROUNDSTATION, on_recv, hard_exit
+from GS_radio import GROUNDSTATION, on_recv, hard_exit
 import signal
 
 GS = GROUNDSTATION()
